@@ -3,6 +3,7 @@ import threading
 import time
 import sys
 import random
+import datetime
 
 
 TCP = 0
@@ -15,15 +16,15 @@ TOKEN_CONNECT = 0  # TOKEN TOKEN_CONNECT old_send_ip, old_send_port, new_send_ip
 TOKEN_MSG = 1  # TOKEN TOKEN_MSG MSG_TO MSG_FROM MSG
 
 
-def encode_message(msg_type, parameters):
-    new_params =[]
+def encode_message(msg_type, address_from, parameters):
+    new_params = []
     for param in parameters:
         if param*0 != 0:
             new_params.append(param.replace(' ', '|'))
         else:
             new_params.append(param)
 
-    contents = [msg_type] + new_params
+    contents = [msg_type, address_from] + new_params
     return str(contents)[1:-1].replace(' ', '').encode('utf-8')
 
 
@@ -37,8 +38,9 @@ def decode_message(msg):
 
     decoded = [decoder(num) for num in msg.decode('utf-8').split(',')]
     msg_type = decoded[0]
-    parameters = decoded[1:]
-    return msg_type, parameters
+    address_from = decoded[1]
+    parameters = decoded[2:]
+    return msg_type, address_from, parameters
 
 
 class Client:
@@ -59,6 +61,7 @@ class Client:
         self.connect_queue = []
         self.msg_queue = msg_queue
         self.penalty = 1
+        self.previous = None
 
         if protocol == TCP:
             self.mode = socket.SOCK_STREAM
@@ -77,6 +80,8 @@ class Client:
             self.connect()
 
     def handle_connect(self, msg_params):
+        log_msg = encode_message("LOG_CONNECT", self.previous, [str(datetime.datetime.now())])
+        self.log(log_msg)  # log
         old_send_ip, old_send_port, new_send_ip, new_send_port = msg_params
         #print("[RECEIVED CONF MESSAGE]")
         if (self.snd_ip is None) or (self.snd_port is None):
@@ -90,22 +95,24 @@ class Client:
     def get_message_from_queues(self):
         if len(self.connect_queue) == 0:
             if len(self.msg_queue) == 0:
-                msg = encode_message(TOKEN, [])
+                msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [])
             else:
                 if 1.0/self.penalty >= random.randint(0, 1):
                     self.penalty += 2
                     params = self.msg_queue.pop(0)
-                    msg = encode_message(TOKEN, [TOKEN_MSG] + params)
+                    msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [TOKEN_MSG] + params)
                 else:
-                    msg = encode_message(TOKEN, [])
+                    msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [])
                     if self.penalty > 1:
                         self.penalty -= 1
         else:
             params = self.connect_queue.pop(0)
-            msg = encode_message(TOKEN, [TOKEN_CONNECT] + params)
+            msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [TOKEN_CONNECT] + params)
         return msg
 
     def handle_token(self, msg_params):
+        log_msg = encode_message("LOG_TOKEN", self.previous, [str(datetime.datetime.now())])
+        self.log(log_msg) #log
         time.sleep(1)
         if len(msg_params[1:]) == 0:
             #print("[RECEIVED EMPTY TOKEN]")
@@ -116,22 +123,25 @@ class Client:
             if (self.snd_ip == old_send_ip) and (self.snd_port == old_send_port):
                 self.snd_ip = new_send_ip
                 self.snd_port = new_send_port
-                msg = encode_message(TOKEN, [])
+                msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [])
             else:
                 self.connect_queue.append(msg_params[1:])
                 msg_params[1:] = self.connect_queue.pop(0)
-                msg = encode_message(TOKEN, msg_params)
+                msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), msg_params)
         else:
             name_to, name_from,  content = msg_params[2:]
             if name_to == self.name:
                 print("[USER ", name_from, " WRITES]: ", content)
                 msg = self.get_message_from_queues()
             else:
-                msg = encode_message(TOKEN, msg_params)
+                if name_from == self.name:
+                    msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [])
+                else:
+                    msg = encode_message(TOKEN, self.snd_ip+str(self.snd_port), msg_params)
         self.send_wrap(msg)
 
     def handle_message(self, encoded_message):
-        msg_type, msg_params = decode_message(encoded_message)
+        msg_type, self.previous, msg_params = decode_message(encoded_message)
         handle_msg = {
             CONNECT: self.handle_connect,
             TOKEN: self.handle_token,
@@ -181,10 +191,10 @@ class Client:
         self.snd_socket.sendto(msg, (self.log_ip, self.log_port))
 
     def connect(self):
-        message = encode_message(CONNECT, [self.snd_ip, self.snd_port, self.rcv_ip, self.rcv_port])
+        message = encode_message(CONNECT, self.snd_ip+str(self.snd_port), [self.snd_ip, self.snd_port, self.rcv_ip, self.rcv_port])
         self.send_wrap(message)
         if self.token:
-            message = encode_message(TOKEN, [TOKEN_MSG])
+            message = encode_message(TOKEN, self.snd_ip+str(self.snd_port), [TOKEN_MSG])
             self.send_wrap(message)
         self.receive_wrap()
 
