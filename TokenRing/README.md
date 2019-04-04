@@ -1,5 +1,5 @@
-# distributed_systems
-Distributed systems labs
+# TokenRing
+Distributed systems labs #1
 
 Project uses sockets to create token ring logical architecture (one token used to pass messages). 
 Allows to connect clients during runtime and resolve tree-like structure of clients connected without token 
