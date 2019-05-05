@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+enum Currency{
+  EUR = 0;
+  USD = 1;
+  PLN = 2;
+}
+
+message CurrencyRate {
+  Currency currency = 1;
+  double rate = 2;
+}
+
+message CurrencySubscription{
+  repeated Currency requested = 1;
+}
+
+service Service {
+  rpc subscribeCurrency (CurrencySubscription) returns (stream CurrencyRate);
+}
